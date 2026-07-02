@@ -158,7 +158,7 @@ def build_parser() -> argparse.ArgumentParser:
     solve.add_argument("--sigma", type=float, default=None)
     solve.add_argument("--rho", type=float, default=1.0)
     solve.add_argument("--theta", type=float, default=1.0)
-    solve.add_argument("--max-iters", type=int, default=1000000)
+    solve.add_argument("--max-iters", type=int, default=100000)
     solve.add_argument("--tol", type=float, default=1e-8)
     solve.add_argument("--adapt", choices=["none", "always", "first-k"], default="none")
     solve.add_argument("--adapt-iters", type=int, default=100)

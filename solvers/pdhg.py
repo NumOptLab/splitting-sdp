@@ -147,7 +147,15 @@ def run_pdhg(
     solve_start = time.perf_counter()
     history: list[dict[str, float | int | str]] = []
     metrics = pdhg_residuals(X, y, data.C, data.A, data.b)
-    row0 = history_row(0, metrics, tau=tau, sigma=sigma, Z_diff=0.0, elapsed=0.0)
+    row0 = history_row(
+        0,
+        metrics,
+        tau=tau,
+        sigma=sigma,
+        Z_diff=0.0,
+        include_complementarity=True,
+        elapsed=0.0,
+    )
     history.append(row0)
     if verbose:
         print_run_info(
@@ -161,8 +169,13 @@ def run_pdhg(
                 f"adapt_iters={adapt_iters}",
             ),
         )
-        print_progress_header("pdhg", ("tau", "sigma"))
-        print_progress_row(row0, total_elapsed=time.perf_counter() - total_start, extra_values=(tau, sigma))
+        print_progress_header("pdhg", ("tau", "sigma"), include_complementarity=True)
+        print_progress_row(
+            row0,
+            total_elapsed=time.perf_counter() - total_start,
+            extra_values=(tau, sigma),
+            include_complementarity=True,
+        )
     status = "max_iters_reached"
     reason = "maximum iterations reached"
     total_line_search_steps = 0
@@ -205,12 +218,18 @@ def run_pdhg(
             alpha=theta,
             Z_diff=Z_diff,
             accepted_line_search_steps=accepted,
+            include_complementarity=True,
             elapsed=elapsed,
         )
         history.append(row)
         converged = metrics.kkt_res <= tol
         if verbose and should_log_progress(iteration, period, is_final=converged or iteration == max_iters):
-            print_progress_row(row, total_elapsed=time.perf_counter() - total_start, extra_values=(tau, sigma))
+            print_progress_row(
+                row,
+                total_elapsed=time.perf_counter() - total_start,
+                extra_values=(tau, sigma),
+                include_complementarity=True,
+            )
         if converged:
             status = "converged"
             reason = "kkt_res <= tol"

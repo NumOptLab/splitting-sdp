@@ -66,9 +66,18 @@ def print_run_info(
     print(f"Solver info: algorithm={algorithm.upper()} {' '.join(details)}", file=stream)
 
 
-def print_progress_header(algorithm: str, extra_columns: tuple[str, ...], *, stream: TextIO | None = None) -> None:
+def print_progress_header(
+    algorithm: str,
+    extra_columns: tuple[str, ...],
+    *,
+    include_complementarity: bool = False,
+    stream: TextIO | None = None,
+) -> None:
     stream = sys.stderr if stream is None else stream
-    columns = ("iter", "kkt_res", "primal_res", "dual_res", "rel_gap", "rank_X", "time", *extra_columns)
+    columns = ["iter", "kkt_res", "primal_res", "dual_res"]
+    if include_complementarity:
+        columns.append("compl")
+    columns.extend(("rel_gap", "rank_X", "time", *extra_columns))
     print(f"{algorithm.upper()} progress", file=stream)
     print(" ".join(f"{column:>12}" for column in columns), file=stream)
 
@@ -78,6 +87,7 @@ def print_progress_row(
     *,
     total_elapsed: float,
     extra_values: tuple[float, ...],
+    include_complementarity: bool = False,
     stream: TextIO | None = None,
 ) -> None:
     stream = sys.stderr if stream is None else stream
@@ -86,10 +96,16 @@ def print_progress_row(
         f"{float(row['kkt_res']):12.4e}",
         f"{float(row['primal_res']):12.4e}",
         f"{float(row['dual_res']):12.4e}",
-        f"{float(row['rel_gap']):12.4e}",
-        f"{int(row['rank_X']):12d}",
-        f"{total_elapsed:12.3f}",
     ]
+    if include_complementarity:
+        values.append(f"{float(row['compl']):12.4e}")
+    values.extend(
+        [
+            f"{float(row['rel_gap']):12.4e}",
+            f"{int(row['rank_X']):12d}",
+            f"{total_elapsed:12.3f}",
+        ]
+    )
     values.extend(f"{value:12.4e}" for value in extra_values)
     print(" ".join(values), file=stream)
 
@@ -136,6 +152,7 @@ def history_row(
     Z_diff: float | None = None,
     accepted_line_search_steps: int = 0,
     tuning_event: str = "",
+    include_complementarity: bool = False,
     elapsed: float = 0.0,
 ) -> dict[str, float | int | str]:
     row: dict[str, float | int | str] = {
@@ -158,6 +175,8 @@ def history_row(
         "tuning_event": tuning_event,
         "time": elapsed,
     }
+    if include_complementarity:
+        row["compl"] = metrics.complementarity
     if Z_diff is not None:
         row["Z_diff"] = Z_diff
     return row
