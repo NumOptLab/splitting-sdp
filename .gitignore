@@ -1,0 +1,14 @@
+# Local data / outputs
+data/
+figures/
+results/
+references/
+tests/
+
+# Local version file
+version.py
+
+# macOS
+.DS_Store
+**/.DS_Store
+__pycache__/
