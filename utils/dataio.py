@@ -1,4 +1,4 @@
-"""Input/output for dense SDPA data and MATLAB conversion."""
+"""Input/output for SDPA data and MATLAB conversion."""
 
 from __future__ import annotations
 
@@ -10,12 +10,13 @@ import numpy as np
 from scipy import io as scipy_io
 from scipy import sparse
 
+from core.operators import operator_matrix, smat, svec_index, triangular_n
 from core.psd import symmetrize
 
 @dataclass(frozen=True)
 class SDPData:
     C: np.ndarray
-    A: np.ndarray
+    A: np.ndarray | sparse.spmatrix
     b: np.ndarray
     block_sizes: tuple[int, ...]
     problem_name: str = "problem"
@@ -71,7 +72,7 @@ def read_dat_s_metadata(path: str | Path) -> SDPMetadata:
 
 
 def read_dat_s(path: str | Path) -> SDPData:
-    """Read an SDPA sparse ``.dat-s`` file into dense standard-form arrays."""
+    """Read an SDPA sparse ``.dat-s`` file into standard-form arrays."""
     path_obj = Path(path)
     metadata = read_dat_s_metadata(path_obj)
 
@@ -84,7 +85,10 @@ def read_dat_s(path: str | Path) -> SDPData:
 
     offsets = np.cumsum((0,) + block_sizes)
     C = np.zeros((metadata.n, metadata.n), dtype=float)
-    A = np.zeros((m, metadata.n, metadata.n), dtype=float)
+    a_rows: list[int] = []
+    a_cols: list[int] = []
+    a_data: list[float] = []
+    root2 = float(np.sqrt(2.0))
 
     remaining = len(tokens) - cursor
     if remaining % 5 != 0:
@@ -103,14 +107,25 @@ def read_dat_s(path: str | Path) -> SDPData:
         base = int(offsets[block - 1])
         i = base + row - 1
         j = base + col - 1
-        target = C if matno == 0 else A[matno - 1]
-        target[i, j] += value
-        if i != j:
-            target[j, i] += value
+        if matno == 0:
+            C[i, j] += value
+            if i != j:
+                C[j, i] += value
+        else:
+            a_rows.append(matno - 1)
+            a_cols.append(svec_index(metadata.n, i, j))
+            a_data.append(value * (root2 if i != j else 1.0))
+
+    A = sparse.coo_matrix(
+        (a_data, (a_rows, a_cols)),
+        shape=(m, metadata.n * (metadata.n + 1) // 2),
+        dtype=float,
+    ).tocsr()
+    A.sum_duplicates()
 
     return SDPData(
         C=symmetrize(C),
-        A=np.asarray([symmetrize(Ai) for Ai in A], dtype=float),
+        A=A,
         b=b,
         block_sizes=block_sizes,
         problem_name=path_obj.stem.replace(".dat", ""),
@@ -126,16 +141,8 @@ def _mat_vector_indices(n: int) -> Iterable[tuple[int, int]]:
             yield i, j
 
 
-def _triangular_n(length: int) -> int:
-    n_float = (np.sqrt(8 * length + 1) - 1) / 2
-    n = int(round(n_float))
-    if n * (n + 1) // 2 != length:
-        raise ValueError(f"Vector length {length} is not triangular.")
-    return n
-
-
 def write_dat_s(data: SDPData, path: str | Path, *, tol: float = 0.0) -> Path:
-    """Write dense data to SDPA sparse format."""
+    """Write data to SDPA sparse format."""
     path_obj = Path(path)
     path_obj.parent.mkdir(parents=True, exist_ok=True)
     with path_obj.open("w", encoding="utf-8") as handle:
@@ -143,9 +150,17 @@ def write_dat_s(data: SDPData, path: str | Path, *, tol: float = 0.0) -> Path:
         handle.write(f"{len(data.block_sizes)}\n")
         handle.write(" ".join(str(size) for size in data.block_sizes) + "\n")
         handle.write(" ".join(f"{float(value):.17g}" for value in data.b) + "\n")
-        matrices = [symmetrize(data.C)] + [symmetrize(Ai) for Ai in data.A]
+        Aop = operator_matrix(data.A)
         offsets = np.cumsum((0,) + data.block_sizes)
-        for matno, matrix in enumerate(matrices):
+        for matno in range(data.m + 1):
+            if matno == 0:
+                matrix = symmetrize(data.C)
+            elif sparse.issparse(Aop):
+                matrix = smat(Aop.getrow(matno - 1).toarray().reshape(-1))
+            elif np.asarray(data.A).ndim == 3:
+                matrix = symmetrize(np.asarray(data.A, dtype=float)[matno - 1])
+            else:
+                matrix = smat(np.asarray(Aop, dtype=float)[matno - 1])
             for block_idx, block_size in enumerate(data.block_sizes):
                 base = int(offsets[block_idx])
                 for j in range(block_size):
@@ -164,7 +179,7 @@ def _as_vector(value: object) -> np.ndarray:
 
 
 def _write_vector_dat_s(C_vec: np.ndarray, At: object, b: np.ndarray, output_path: Path) -> Path:
-    n = _triangular_n(int(C_vec.size))
+    n = triangular_n(int(C_vec.size))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     b_vec = np.asarray(b, dtype=float).reshape(-1)
     m = int(b_vec.size)

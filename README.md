@@ -1,6 +1,6 @@
 # pdhg-sdp
 
-Dense first-order solvers for standard-form semidefinite programs
+First-order solvers for standard-form semidefinite programs
 
 ```text
 minimize    <C, X>
@@ -38,9 +38,11 @@ Plot and diagnose saved runs:
 ```bash
 python -m cli plot --history results/..._history.csv
 python -m cli diagnose --solution results/..._solution.h5 --check-nd true
+python -m cli diagnose --solution results/..._solution.h5 --check-nd true --maxcut
+python -m cli sparsify-h5 results/..._solution.h5
 ```
 
-Solver outputs are written under `results`: summary JSON, solution HDF5, history CSV, and convergence plots in both PNG and EPS.
+Solver outputs are written under `results`: summary JSON, solution HDF5, history CSV, and convergence plots in both PNG and EPS. Solution HDF5 files store the SDP operator `A` as a sparse CSR `svec` matrix; sparse `C` and slack matrices are also stored sparsely.
 
 ## Conventions
 
@@ -50,4 +52,5 @@ Solver outputs are written under `results`: summary JSON, solution HDF5, history
 - ADMM uses `--rho` as the public name for the paper penalty parameter `sigma`.
 - PDHG uses `theta=1` by default.
 - PDHG dual residual is the squared Frobenius distance from `S = C - A^* y` to the PSD cone, normalized by `1 + ||C||_F`.
-- `.dat-s` positive SDPA blocks are assembled as one dense block-diagonal SDP. LP/negative blocks are rejected.
+- `.dat-s` positive SDPA blocks are assembled as one block-diagonal SDP with sparse constraint operators. LP/negative blocks are rejected.
+- `diagnose --maxcut` assumes the SDP constraints are `diag(X)=1` and uses that structure for the nondegeneracy test.

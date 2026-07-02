@@ -13,6 +13,7 @@ import pandas as pd
 
 from core.psd import eigvalsh, lambda_min_abs
 from solvers.common import SolverResult
+from utils.h5io import write_maybe_sparse, write_sdp_operator
 from version import __version__
 
 
@@ -85,16 +86,16 @@ def write_solution(result: SolverResult, stem: str) -> Path:
     with h5py.File(path, "w") as handle:
         handle.create_dataset("X_last", data=result.X)
         handle.create_dataset("y_last", data=result.y)
-        handle.create_dataset("S_last", data=result.S)
+        write_maybe_sparse(handle, "S_last", result.S)
         if result.X_prev is not None:
             handle.create_dataset("X_prev", data=result.X_prev)
         if result.S_prev is not None:
-            handle.create_dataset("S_prev", data=result.S_prev)
+            write_maybe_sparse(handle, "S_prev", result.S_prev)
         if result.Z_last is not None:
             handle.create_dataset("Z_last", data=result.Z_last)
             handle.create_dataset("eig_Z_last", data=eigvalsh(result.Z_last))
-        handle.create_dataset("C", data=result.data.C)
-        handle.create_dataset("A", data=result.data.A)
+        write_maybe_sparse(handle, "C", result.data.C)
+        write_sdp_operator(handle, "A", result.data.A, n=result.data.n)
         handle.create_dataset("b", data=result.data.b)
         handle.create_dataset("eig_X_last", data=eigvalsh(result.X))
         handle.create_dataset("eig_S_last", data=eigvalsh(result.S))

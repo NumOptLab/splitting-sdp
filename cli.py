@@ -10,6 +10,7 @@ from solvers.admm import run_admm
 from solvers.pdhg import run_pdhg
 from utils.dataio import mat_to_dat_s, read_dat_s
 from utils.diagnostics import diagnose_solution
+from utils.h5io import rewrite_solution_sparse
 from utils.output import write_run_artifacts
 from utils.plotting import plot_convergence
 
@@ -137,8 +138,13 @@ def format_diagnostics(report: dict[str, object]) -> str:
 
 
 def diagnose_command(args: argparse.Namespace) -> None:
-    report = diagnose_solution(args.solution, check_nd=args.check_nd, tol=args.tol)
+    report = diagnose_solution(args.solution, check_nd=args.check_nd, tol=args.tol, maxcut=args.maxcut)
     print(format_diagnostics(report))
+
+
+def sparsify_h5_command(args: argparse.Namespace) -> None:
+    paths = [rewrite_solution_sparse(path) for path in args.solutions]
+    print(json.dumps([str(path) for path in paths], indent=2))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -174,8 +180,13 @@ def build_parser() -> argparse.ArgumentParser:
     diagnose = subparsers.add_parser("diagnose")
     diagnose.add_argument("--solution", required=True)
     diagnose.add_argument("--check-nd", type=_bool_arg, default=False)
+    diagnose.add_argument("--maxcut", action="store_true", default=False)
     diagnose.add_argument("--tol", type=float, default=1e-8)
     diagnose.set_defaults(func=diagnose_command)
+
+    sparsify = subparsers.add_parser("sparsify-h5")
+    sparsify.add_argument("solutions", nargs="+")
+    sparsify.set_defaults(func=sparsify_h5_command)
     return parser
 
 
