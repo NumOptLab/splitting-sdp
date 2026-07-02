@@ -148,8 +148,8 @@ def diagnose_solution(path: str | Path, *, check_nd: bool = False, tol: float = 
         if algorithm == "pdhg":
             result["tau_0"] = float(_attr(handle, "tau_0", _attr(handle, "tau", float("nan"))))
             result["sigma_0"] = float(_attr(handle, "sigma_0", _attr(handle, "sigma", float("nan"))))
-            W = np.asarray(handle["W_last"])
-            result["min_eig_|W|"] = lambda_min_abs(W)
+            Z = np.asarray(handle["Z_last"])
+            result["min_eig_|Z|"] = lambda_min_abs(Z)
         elif algorithm == "admm":
             result["rho_0"] = float(_attr(handle, "rho_0", _attr(handle, "rho", float("nan"))))
             Z = np.asarray(handle["Z_last"])

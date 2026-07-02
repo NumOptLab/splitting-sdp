@@ -38,7 +38,6 @@ def plot_convergence(history_path: str | Path, *, stem: str | None = None) -> li
     ax_left.semilogy(iterations, history["kkt_res"], color="tab:blue", label="KKT residual")
     iterate_metrics = (
         ("Z_diff", r"$\|Z_{k+1}-Z_k\|_F$"),
-        ("W_diff", r"$\|W_{k+1}-W_k\|_F$"),
     )
     for column, label in iterate_metrics:
         if column in history.columns:

@@ -147,7 +147,7 @@ def run_pdhg(
     solve_start = time.perf_counter()
     history: list[dict[str, float | int | str]] = []
     metrics = pdhg_residuals(X, y, data.C, data.A, data.b)
-    row0 = history_row(0, metrics, tau=tau, sigma=sigma, W_diff=0.0, elapsed=0.0)
+    row0 = history_row(0, metrics, tau=tau, sigma=sigma, Z_diff=0.0, elapsed=0.0)
     history.append(row0)
     if verbose:
         print_run_info(
@@ -170,7 +170,7 @@ def run_pdhg(
     S_prev = symmetrize(data.C - apply_AT(data.A, y))
 
     for iteration in range(1, max_iters + 1):
-        W_prev = symmetrize(X - tau * symmetrize(data.C - apply_AT(data.A, y)))
+        Z_prev = symmetrize(X - tau * symmetrize(data.C - apply_AT(data.A, y)))
         X_prev = X.copy()
         S_prev = symmetrize(data.C - apply_AT(data.A, y))
         if adapt_is_enabled(adapt, iteration, adapt_iters):
@@ -195,15 +195,15 @@ def run_pdhg(
         metrics = pdhg_residuals(X, y, data.C, data.A, data.b)
         elapsed = time.perf_counter() - solve_start
         S_current = symmetrize(data.C - apply_AT(data.A, y))
-        W_next = symmetrize(X - tau * S_current)
-        W_diff = float(np.linalg.norm(W_next - W_prev, ord="fro"))
+        Z_next = symmetrize(X - tau * S_current)
+        Z_diff = float(np.linalg.norm(Z_next - Z_prev, ord="fro"))
         row = history_row(
             iteration,
             metrics,
             tau=tau,
             sigma=sigma,
             alpha=theta,
-            W_diff=W_diff,
+            Z_diff=Z_diff,
             accepted_line_search_steps=accepted,
             elapsed=elapsed,
         )
@@ -218,7 +218,7 @@ def run_pdhg(
 
     solve_time = time.perf_counter() - solve_start
     S = symmetrize(data.C - apply_AT(data.A, y))
-    W_last = symmetrize(X - tau * S)
+    Z_last = symmetrize(X - tau * S)
     total_time = time.perf_counter() - total_start
     return SolverResult(
         algorithm="pdhg",
@@ -250,6 +250,6 @@ def run_pdhg(
         data=data,
         X_prev=X_prev,
         S_prev=S_prev,
-        W_last=W_last,
+        Z_last=Z_last,
         line_search_summary={"accepted_steps_total": total_line_search_steps, "beta": beta},
     )

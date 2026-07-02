@@ -81,7 +81,7 @@ def pdhg_residuals(X: np.ndarray, y: np.ndarray, C: np.ndarray, A: np.ndarray, b
     min_s = min_eig(S)
     S_psd = project_psd(S)
     dual_res = float(np.linalg.norm(S - S_psd, ord="fro") ** 2 / (1.0 + np.linalg.norm(C, ord="fro")))
-    complementarity = float(np.sum(Xs * S_psd) / (1.0 + np.linalg.norm(Xs, ord="fro") * np.linalg.norm(S_psd, ord="fro")))
+    complementarity = float(np.sum(Xs * S_psd) / (1.0 + abs(primal_obj) + abs(dual_obj)))
     kkt_res = max(primal_res, dual_res, abs(rel_gap), abs(complementarity), max(0.0, -min_x))
     return ResidualMetrics(
         primal_obj=primal_obj,

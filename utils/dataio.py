@@ -12,9 +12,6 @@ from scipy import sparse
 
 from core.psd import symmetrize
 
-DEFAULT_MAX_DENSE_BYTES = 2 * 1024**3
-
-
 @dataclass(frozen=True)
 class SDPData:
     C: np.ndarray
@@ -73,22 +70,10 @@ def read_dat_s_metadata(path: str | Path) -> SDPMetadata:
     return SDPMetadata(m=m, block_sizes=block_sizes, n=n, dense_bytes=dense_bytes)
 
 
-def _check_dense_size(metadata: SDPMetadata, max_dense_bytes: int | None) -> None:
-    if max_dense_bytes is None:
-        return
-    if metadata.dense_bytes > max_dense_bytes:
-        gb = metadata.dense_bytes / 1024**3
-        limit = max_dense_bytes / 1024**3
-        raise MemoryError(
-            f"Dense data would require about {gb:.2f} GiB, exceeding the {limit:.2f} GiB guard."
-        )
-
-
-def read_dat_s(path: str | Path, *, max_dense_bytes: int | None = DEFAULT_MAX_DENSE_BYTES) -> SDPData:
+def read_dat_s(path: str | Path) -> SDPData:
     """Read an SDPA sparse ``.dat-s`` file into dense standard-form arrays."""
     path_obj = Path(path)
     metadata = read_dat_s_metadata(path_obj)
-    _check_dense_size(metadata, max_dense_bytes)
 
     tokens = _clean_tokens(path_obj)
     cursor = 0

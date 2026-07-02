@@ -8,7 +8,7 @@ from pathlib import Path
 
 from solvers.admm import run_admm
 from solvers.pdhg import run_pdhg
-from utils.dataio import DEFAULT_MAX_DENSE_BYTES, mat_to_dat_s, read_dat_s
+from utils.dataio import mat_to_dat_s, read_dat_s
 from utils.diagnostics import diagnose_solution
 from utils.output import write_run_artifacts
 from utils.plotting import plot_convergence
@@ -30,18 +30,15 @@ def _positive_int_arg(value: str) -> int:
     return parsed
 
 
-def _load_input(path: str, max_dense_gb: float):
+def _load_input(path: str):
     suffix = Path(path).suffix.lower()
     if suffix == ".mat":
         path = str(mat_to_dat_s(path))
-    max_bytes = int(max_dense_gb * 1024**3)
-    if max_bytes <= 0:
-        max_bytes = DEFAULT_MAX_DENSE_BYTES
-    return read_dat_s(path, max_dense_bytes=max_bytes)
+    return read_dat_s(path)
 
 
 def solve_command(args: argparse.Namespace) -> None:
-    data = _load_input(args.input, args.max_dense_gb)
+    data = _load_input(args.input)
     common = {
         "max_iters": args.max_iters,
         "tol": args.tol,
@@ -93,7 +90,6 @@ def format_diagnostics(report: dict[str, object]) -> str:
         "rho_0",
         "adapt",
         "max_iters",
-        "min_eig_|W|",
         "min_eig_|Z|",
     ]
     labels = {
@@ -108,7 +104,6 @@ def format_diagnostics(report: dict[str, object]) -> str:
         "rho_0": "rho_0",
         "adapt": "adapt",
         "max_iters": "max_iters",
-        "min_eig_|W|": "min_eig_|W|",
         "min_eig_|Z|": "min_eig_|Z|",
     }
     rows = [(labels[key], report[key]) for key in scalar_order if key in report]
@@ -165,7 +160,6 @@ def build_parser() -> argparse.ArgumentParser:
     solve.add_argument("--seed", type=int, default=None)
     solve.add_argument("--verbose", action=argparse.BooleanOptionalAction, default=True)
     solve.add_argument("--period", type=_positive_int_arg, default=100)
-    solve.add_argument("--max-dense-gb", type=float, default=2.0)
     solve.set_defaults(func=solve_command)
 
     convert = subparsers.add_parser("convert-mat")

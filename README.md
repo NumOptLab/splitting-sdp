@@ -51,4 +51,3 @@ Solver outputs are written under `results`: summary JSON, solution HDF5, history
 - PDHG uses `theta=1` by default.
 - PDHG dual residual is the squared Frobenius distance from `S = C - A^* y` to the PSD cone, normalized by `1 + ||C||_F`.
 - `.dat-s` positive SDPA blocks are assembled as one dense block-diagonal SDP. LP/negative blocks are rejected.
-- Dense materialization is guarded to avoid accidental multi-GB allocations.

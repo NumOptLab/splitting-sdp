@@ -93,9 +93,6 @@ def write_solution(result: SolverResult, stem: str) -> Path:
         if result.Z_last is not None:
             handle.create_dataset("Z_last", data=result.Z_last)
             handle.create_dataset("eig_Z_last", data=eigvalsh(result.Z_last))
-        if result.W_last is not None:
-            handle.create_dataset("W_last", data=result.W_last)
-            handle.create_dataset("eig_W_last", data=eigvalsh(result.W_last))
         handle.create_dataset("C", data=result.data.C)
         handle.create_dataset("A", data=result.data.A)
         handle.create_dataset("b", data=result.data.b)
@@ -146,7 +143,6 @@ def write_summary(result: SolverResult, stem: str, history_path: Path, solution_
         "sigma_0": params.get("sigma_0"),
         "sigma": params.get("sigma"),
         "min_eig_|Z|": None if result.Z_last is None else lambda_min_abs(result.Z_last),
-        "min_eig_|W|": None if result.W_last is None else lambda_min_abs(result.W_last),
         "adapt": _adapt_label(params),
         "adaptation_mode": params.get("adapt"),
         "adapt_iters": params.get("adapt_iters"),

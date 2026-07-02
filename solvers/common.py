@@ -31,7 +31,6 @@ class SolverResult:
     X_prev: np.ndarray | None = None
     S_prev: np.ndarray | None = None
     Z_last: np.ndarray | None = None
-    W_last: np.ndarray | None = None
     line_search_summary: dict[str, float | int | str] | None = None
     tuning_summary: dict[str, float | int | str] | None = None
 
@@ -69,7 +68,7 @@ def print_run_info(
 
 def print_progress_header(algorithm: str, extra_columns: tuple[str, ...], *, stream: TextIO | None = None) -> None:
     stream = sys.stderr if stream is None else stream
-    columns = ("iter", "kkt_res", "primal_res", "dual_res", "rel_gap", "rank_X", "total_s", *extra_columns)
+    columns = ("iter", "kkt_res", "primal_res", "dual_res", "rel_gap", "rank_X", "time", *extra_columns)
     print(f"{algorithm.upper()} progress", file=stream)
     print(" ".join(f"{column:>12}" for column in columns), file=stream)
 
@@ -135,7 +134,6 @@ def history_row(
     sigma: float = float("nan"),
     alpha: float = float("nan"),
     Z_diff: float | None = None,
-    W_diff: float | None = None,
     accepted_line_search_steps: int = 0,
     tuning_event: str = "",
     elapsed: float = 0.0,
@@ -162,6 +160,4 @@ def history_row(
     }
     if Z_diff is not None:
         row["Z_diff"] = Z_diff
-    if W_diff is not None:
-        row["W_diff"] = W_diff
     return row
