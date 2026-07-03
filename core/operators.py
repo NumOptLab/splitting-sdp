@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Callable
 
 import numpy as np
@@ -29,19 +30,32 @@ def svec_index(n: int, i: int, j: int) -> int:
     return col * n - (col * (col - 1)) // 2 + (row - col)
 
 
+@lru_cache(maxsize=None)
+def _svec_indices(n: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    rows: list[int] = []
+    cols: list[int] = []
+    offdiag: list[bool] = []
+    for j in range(n):
+        for i in range(j, n):
+            rows.append(i)
+            cols.append(j)
+            offdiag.append(i != j)
+    return (
+        np.asarray(rows, dtype=np.int64),
+        np.asarray(cols, dtype=np.int64),
+        np.asarray(offdiag, dtype=bool),
+    )
+
+
 def svec(matrix: np.ndarray) -> np.ndarray:
     """Symmetric vectorization with sqrt(2)-scaled off-diagonal entries."""
     M = symmetrize(matrix)
     n = M.shape[0]
-    values: list[float] = []
+    rows, cols, offdiag = _svec_indices(n)
+    values = np.asarray(M[rows, cols], dtype=float).copy()
     root2 = float(np.sqrt(2.0))
-    for j in range(n):
-        for i in range(j, n):
-            value = float(M[i, j])
-            if i != j:
-                value *= root2
-            values.append(value)
-    return np.asarray(values, dtype=float)
+    values[offdiag] *= root2
+    return values
 
 
 def smat(vector: np.ndarray) -> np.ndarray:
@@ -49,73 +63,103 @@ def smat(vector: np.ndarray) -> np.ndarray:
     values = np.asarray(vector, dtype=float).reshape(-1)
     n = triangular_n(int(values.size))
     matrix = np.zeros((n, n), dtype=float)
+    rows, cols, offdiag = _svec_indices(n)
+    scaled = values.copy()
     root2 = float(np.sqrt(2.0))
-    cursor = 0
-    for j in range(n):
-        for i in range(j, n):
-            value = float(values[cursor])
-            if i != j:
-                value /= root2
-                matrix[j, i] = value
-            matrix[i, j] = value
-            cursor += 1
+    scaled[offdiag] /= root2
+    matrix[rows, cols] = scaled
+    matrix[cols[offdiag], rows[offdiag]] = scaled[offdiag]
     return matrix
 
 
-def operator_matrix(A: np.ndarray | sparse.spmatrix) -> np.ndarray | sparse.csr_matrix:
-    """Matrix representation of ``A`` under ``svec`` coordinates."""
+def operator_matrix(A: np.ndarray | sparse.spmatrix | SDPOperator) -> sparse.csr_matrix:
+    """Sparse matrix representation of ``A`` under ``svec`` coordinates."""
+    if isinstance(A, SDPOperator):
+        return A.matrix
     if sparse.issparse(A):
         return A.tocsr()
     mats = np.asarray(A, dtype=float)
     if mats.ndim == 2:
-        return mats
+        return sparse.csr_matrix(mats)
     if mats.shape[0] == 0:
         n = mats.shape[1]
-        return np.zeros((0, n * (n + 1) // 2), dtype=float)
-    return np.vstack([svec(Ai) for Ai in mats])
+        return sparse.csr_matrix((0, n * (n + 1) // 2), dtype=float)
+    return sparse.csr_matrix(np.vstack([svec(Ai) for Ai in mats]))
 
 
-def apply_A(A: np.ndarray | sparse.spmatrix, X: np.ndarray) -> np.ndarray:
-    """Apply ``A(X) = (<A_i, X>)_i``."""
-    matrix = operator_matrix(A)
-    x_vec = svec(X)
-    return np.asarray(matrix @ x_vec, dtype=float).reshape(-1)
+@dataclass
+class SDPOperator:
+    """Sparse ``svec`` representation of the SDP affine map."""
 
+    matrix: sparse.csr_matrix
+    n: int
+    _gram: sparse.csr_matrix | None = None
+    _norm_squared: float | None = None
 
-def apply_AT(A: np.ndarray | sparse.spmatrix, y: np.ndarray) -> np.ndarray:
-    """Apply ``A^* y = sum_i y_i A_i``."""
-    matrix = operator_matrix(A)
-    y_vec = np.asarray(y, dtype=float).reshape(-1)
-    vector = matrix.T @ y_vec if sparse.issparse(matrix) else y_vec @ matrix
-    return smat(np.asarray(vector, dtype=float).reshape(-1))
+    @classmethod
+    def from_data(cls, A: np.ndarray | sparse.spmatrix | SDPOperator, *, n: int | None = None) -> SDPOperator:
+        if isinstance(A, SDPOperator):
+            return A
+        matrix = operator_matrix(A)
+        inferred_n = triangular_n(matrix.shape[1])
+        if n is not None and inferred_n != int(n):
+            raise ValueError(f"Operator has svec dimension for n={inferred_n}, expected n={n}.")
+        return cls(matrix=matrix, n=inferred_n)
 
+    @property
+    def shape(self) -> tuple[int, int]:
+        return self.matrix.shape
 
-def gram_matrix(A: np.ndarray | sparse.spmatrix) -> np.ndarray | sparse.csr_matrix:
-    """Return the Gram matrix ``A A^*``."""
-    matrix = operator_matrix(A)
-    if matrix.shape[0] == 0:
-        return np.zeros((0, 0), dtype=float)
-    gram = matrix @ matrix.T
-    if sparse.issparse(gram):
-        return gram.tocsr()
-    return symmetrize(np.asarray(gram, dtype=float))
+    def apply(self, X: np.ndarray) -> np.ndarray:
+        return np.asarray(self.matrix @ svec(X), dtype=float).reshape(-1)
 
+    def adjoint(self, y: np.ndarray) -> np.ndarray:
+        vector = self.matrix.T @ np.asarray(y, dtype=float).reshape(-1)
+        return smat(np.asarray(vector, dtype=float).reshape(-1))
 
-def operator_norm_squared(A: np.ndarray | sparse.spmatrix) -> float:
-    """Return ``||A||^2`` for the Frobenius-to-Euclidean operator norm."""
-    matrix = operator_matrix(A)
-    if matrix.shape[0] == 0 or matrix.shape[1] == 0:
-        return 0.0
-    if sparse.issparse(matrix):
-        if matrix.nnz == 0:
-            return 0.0
-        if min(matrix.shape) == 1:
+    def gram(self) -> sparse.csr_matrix:
+        if self._gram is None:
+            self._gram = (self.matrix @ self.matrix.T).tocsr()
+        return self._gram
+
+    def norm_squared(self) -> float:
+        if self._norm_squared is not None:
+            return self._norm_squared
+        matrix = self.matrix
+        if matrix.shape[0] == 0 or matrix.shape[1] == 0 or matrix.nnz == 0:
+            self._norm_squared = 0.0
+        elif min(matrix.shape) == 1:
             value = sparse_linalg.norm(matrix)
+            self._norm_squared = float(max(value * value, 0.0))
         else:
             value = sparse_linalg.svds(matrix, k=1, return_singular_vectors=False)[0]
-        return float(max(value * value, 0.0))
-    G = gram_matrix(matrix)
-    return float(max(np.linalg.eigvalsh(G)[-1], 0.0))
+            self._norm_squared = float(max(value * value, 0.0))
+        return self._norm_squared
+
+
+def as_sdp_operator(A: np.ndarray | sparse.spmatrix | SDPOperator, *, n: int | None = None) -> SDPOperator:
+    """Return the sparse operator wrapper for ``A``."""
+    return SDPOperator.from_data(A, n=n)
+
+
+def apply_A(A: np.ndarray | sparse.spmatrix | SDPOperator, X: np.ndarray) -> np.ndarray:
+    """Apply ``A(X) = (<A_i, X>)_i``."""
+    return as_sdp_operator(A, n=X.shape[0]).apply(X)
+
+
+def apply_AT(A: np.ndarray | sparse.spmatrix | SDPOperator, y: np.ndarray) -> np.ndarray:
+    """Apply ``A^* y = sum_i y_i A_i``."""
+    return as_sdp_operator(A).adjoint(y)
+
+
+def gram_matrix(A: np.ndarray | sparse.spmatrix | SDPOperator) -> sparse.csr_matrix:
+    """Return the Gram matrix ``A A^*``."""
+    return as_sdp_operator(A).gram()
+
+
+def operator_norm_squared(A: np.ndarray | sparse.spmatrix | SDPOperator) -> float:
+    """Return ``||A||^2`` for the Frobenius-to-Euclidean operator norm."""
+    return as_sdp_operator(A).norm_squared()
 
 
 @dataclass(frozen=True)
@@ -155,6 +199,12 @@ def _build_dense_gram_solver(G: np.ndarray, *, rcond: float) -> GramSolver:
     if G.size == 0:
         return GramSolver(G, 0, 0.0, 1.0, None, None)
 
+    try:
+        factor = linalg.cho_factor(G, lower=True, check_finite=False)
+        return GramSolver(G, G.shape[0], float("nan"), float("nan"), factor, None)
+    except linalg.LinAlgError:
+        pass
+
     singular = np.linalg.svd(G, compute_uv=False)
     largest = float(singular[0]) if singular.size else 0.0
     threshold = rcond * max(1.0, largest)
@@ -162,17 +212,10 @@ def _build_dense_gram_solver(G: np.ndarray, *, rcond: float) -> GramSolver:
     positive = singular[singular > threshold]
     min_singular = float(positive[-1]) if positive.size else 0.0
     condition = float(largest / min_singular) if min_singular > 0.0 else float("inf")
-
-    if rank == G.shape[0]:
-        try:
-            factor = linalg.cho_factor(G, lower=True, check_finite=False)
-            return GramSolver(G, rank, min_singular, condition, factor, None)
-        except linalg.LinAlgError:
-            pass
     return GramSolver(G, rank, min_singular, condition, None, np.linalg.pinv(G, rcond=rcond))
 
 
-def build_gram_solver(A: np.ndarray | sparse.spmatrix, *, rcond: float = 1e-12) -> GramSolver:
+def build_gram_solver(A: np.ndarray | sparse.spmatrix | SDPOperator, *, rcond: float = 1e-12) -> GramSolver:
     """Build a stable solver and diagnostics for ``A A^*``."""
     G = gram_matrix(A)
     if sparse.issparse(G):

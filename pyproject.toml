@@ -1,7 +1,7 @@
 [project]
 name = "pdhg-sdp"
 version = "0.1.0"
-description = "Dense first-order solvers for standard-form SDP experiments"
+description = "Sparse-aware first-order solvers for standard-form SDP experiments"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -17,9 +17,6 @@ dependencies = [
 dev = [
     "pytest>=8",
 ]
-
-[project.scripts]
-pdhg-sdp = "cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

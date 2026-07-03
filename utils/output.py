@@ -14,12 +14,11 @@ import pandas as pd
 from core.psd import eigvalsh, lambda_min_abs, min_positive_eig, psd_rank
 from solvers.common import SolverResult
 from utils.h5io import write_maybe_sparse, write_sdp_operator
-from version import __version__
 
 
-def results_dir() -> Path:
-    """Return the package-local results directory."""
-    path = Path(__file__).resolve().parents[1] / "results"
+def results_dir(output_dir: str | Path | None = None) -> Path:
+    """Return the directory for run artifacts."""
+    path = Path(output_dir) if output_dir is not None else Path(__file__).resolve().parents[1] / "results"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -73,14 +72,14 @@ def _seed_value(params: dict[str, Any]) -> int | None:
     return int(seed)
 
 
-def write_history(result: SolverResult, stem: str) -> Path:
-    path = results_dir() / f"{stem}_history.csv"
+def write_history(result: SolverResult, stem: str, *, output_dir: str | Path | None = None) -> Path:
+    path = results_dir(output_dir) / f"{stem}_history.csv"
     pd.DataFrame(result.history).to_csv(path, index=False)
     return path
 
 
-def write_solution(result: SolverResult, stem: str) -> Path:
-    path = results_dir() / f"{stem}_solution.h5"
+def write_solution(result: SolverResult, stem: str, *, output_dir: str | Path | None = None) -> Path:
+    path = results_dir(output_dir) / f"{stem}_solution.h5"
     with h5py.File(path, "w") as handle:
         handle.create_dataset("X_last", data=result.X)
         handle.create_dataset("y_last", data=result.y)
@@ -98,7 +97,6 @@ def write_solution(result: SolverResult, stem: str) -> Path:
         handle.create_dataset("eig_X_last", data=eigvalsh(result.X))
         handle.create_dataset("eig_S_last", data=eigvalsh(result.S))
         handle.attrs["solver_name"] = "pdhg-sdp"
-        handle.attrs["solver_version"] = __version__
         handle.attrs["algorithm"] = result.algorithm
         handle.attrs["status"] = result.status
         handle.attrs["iterations"] = result.iterations
@@ -124,15 +122,22 @@ def write_solution(result: SolverResult, stem: str) -> Path:
     return path
 
 
-def write_summary(result: SolverResult, stem: str, history_path: Path, solution_path: Path, plot_paths: list[Path]) -> Path:
-    path = results_dir() / f"{stem}_summary.json"
+def write_summary(
+    result: SolverResult,
+    stem: str,
+    history_path: Path,
+    solution_path: Path,
+    plot_paths: list[Path],
+    *,
+    output_dir: str | Path | None = None,
+) -> Path:
+    path = results_dir(output_dir) / f"{stem}_summary.json"
     metrics = result.metrics.as_dict()
     params = result.params
     min_pos_x = min_positive_eig(result.X)
     min_pos_s = min_positive_eig(result.S)
     summary = {
         "solver_name": "pdhg-sdp",
-        "solver_version": __version__,
         "prob_id": result.data.problem_name,
         "algorithm": result.algorithm,
         "problem_name": result.data.problem_name,
@@ -193,16 +198,21 @@ def write_summary(result: SolverResult, stem: str, history_path: Path, solution_
     return path
 
 
-def write_run_artifacts(result: SolverResult, *, make_plot: bool = True) -> dict[str, Path | list[Path]]:
+def write_run_artifacts(
+    result: SolverResult,
+    *,
+    make_plot: bool = True,
+    output_dir: str | Path | None = None,
+) -> dict[str, Path | list[Path]]:
     from utils.plotting import plot_convergence
 
     stem = run_stem(result)
-    history_path = write_history(result, stem)
-    solution_path = write_solution(result, stem)
+    history_path = write_history(result, stem, output_dir=output_dir)
+    solution_path = write_solution(result, stem, output_dir=output_dir)
     plot_paths: list[Path] = []
     if make_plot:
-        plot_paths = plot_convergence(history_path, stem=stem)
-    summary_path = write_summary(result, stem, history_path, solution_path, plot_paths)
+        plot_paths = plot_convergence(history_path, stem=stem, output_dir=output_dir)
+    summary_path = write_summary(result, stem, history_path, solution_path, plot_paths, output_dir=output_dir)
     return {
         "summary": summary_path,
         "solution": solution_path,

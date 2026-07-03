@@ -1,4 +1,4 @@
-"""Dense ADMM for standard-form SDP."""
+"""Sparse-aware ADMM for standard-form SDP."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import Literal
 
 import numpy as np
 
-from core.operators import apply_A, apply_AT, build_gram_solver
-from core.psd import project_psd, symmetrize
+from core.operators import GramSolver, as_sdp_operator, build_gram_solver
+from core.psd import project_psd_with_eigs, symmetrize
 from core.residuals import admm_residuals
 from solvers.common import (
     SolverResult,
@@ -28,14 +28,23 @@ AdaptMode = Literal["none", "always", "first-k"]
 InitMode = Literal["zero", "random"]
 
 
-def drs_step(Z: np.ndarray, C: np.ndarray, A: np.ndarray, b: np.ndarray, rho: float) -> np.ndarray:
+def drs_step(
+    Z: np.ndarray,
+    C: np.ndarray,
+    A: np.ndarray,
+    b: np.ndarray,
+    rho: float,
+    *,
+    solver: GramSolver | None = None,
+) -> np.ndarray:
     """One DRS/ADMM step from Eq. (4) in the ADMM-SDP paper."""
-    solver = build_gram_solver(A)
-    PZ = project_psd(Z)
+    op = as_sdp_operator(A, n=C.shape[0])
+    solver = build_gram_solver(op) if solver is None else solver
+    PZ = project_psd_with_eigs(Z).matrix
     argument = -2.0 * PZ + Z
-    projection = apply_AT(A, solver.solve(apply_A(A, argument)))
-    b_term = apply_AT(A, solver.solve(b))
-    c_term = rho * apply_AT(A, solver.solve(apply_A(A, C)))
+    projection = op.adjoint(solver.solve(op.apply(argument)))
+    b_term = op.adjoint(solver.solve(b))
+    c_term = rho * op.adjoint(solver.solve(op.apply(C)))
     return symmetrize(projection + PZ + b_term + c_term - rho * C)
 
 
@@ -69,14 +78,20 @@ def run_admm(
 
     total_start = time.perf_counter()
     setup_start = time.perf_counter()
-    solver = build_gram_solver(data.A)
+    op = as_sdp_operator(data.A, n=data.n)
+    solver = build_gram_solver(op)
+    gram = solver.gram
     rho_0 = rho
     X, y, S = init_xys(data, init, seed)
+    AX = op.apply(X)
+    AS = op.apply(S)
+    AC = op.apply(data.C)
+    ATy = op.adjoint(y)
     setup_time = time.perf_counter() - setup_start
 
     solve_start = time.perf_counter()
     history: list[dict[str, float | int | str]] = []
-    metrics = admm_residuals(X, y, S, data.C, data.A, data.b)
+    metrics = admm_residuals(X, y, S, data.C, op, data.b, AX=AX, ATy=ATy)
     row0 = history_row(0, metrics, rho=rho, Z_diff=0.0, elapsed=0.0)
     history.append(row0)
     if verbose:
@@ -101,19 +116,23 @@ def run_admm(
 
     for iteration in range(1, max_iters + 1):
         Z_prev = symmetrize(X - rho * S)
-        y_prev = y.copy()
         S_prev = S.copy()
         X_prev = X.copy()
+        ATy_prev = ATy.copy()
 
-        rhs = (data.b / rho) - apply_A(data.A, (X / rho) + S - data.C)
+        rhs = (data.b / rho) - (AX / rho + AS - AC)
         y = solver.solve(rhs)
-        S = project_psd(data.C - apply_AT(data.A, y) - X / rho)
-        X = symmetrize(X + rho * (S + apply_AT(data.A, y) - data.C))
+        ATy = op.adjoint(y)
+        projection = project_psd_with_eigs(data.C - ATy - X / rho)
+        S = projection.matrix
+        AS = op.apply(S)
+        primal_link = S + ATy - data.C
+        X = symmetrize(X + rho * primal_link)
+        AX = AX + rho * (AS + np.asarray(gram @ y, dtype=float).reshape(-1) - AC)
 
         tuning_event = ""
         if adapt_is_enabled(adapt, iteration, adapt_iters):
-            primal_link = S + apply_AT(data.A, y) - data.C
-            dual_step = apply_AT(data.A, y - y_prev) + (S - S_prev)
+            dual_step = (ATy - ATy_prev) + (S - S_prev)
             r_norm = float(np.linalg.norm(primal_link, ord="fro"))
             s_norm = float(rho * np.linalg.norm(dual_step, ord="fro"))
             old_rho = rho
@@ -125,7 +144,17 @@ def run_admm(
                 tuning_events += 1
                 tuning_event = f"rho={rho:.6g}"
 
-        metrics = admm_residuals(X, y, S, data.C, data.A, data.b)
+        metrics = admm_residuals(
+            X,
+            y,
+            S,
+            data.C,
+            op,
+            data.b,
+            AX=AX,
+            ATy=ATy,
+            S_eigs=projection.clipped_eigvals,
+        )
         elapsed = time.perf_counter() - solve_start
         Z_next = symmetrize(X - rho * S)
         Z_diff = float(np.linalg.norm(Z_next - Z_prev, ord="fro"))

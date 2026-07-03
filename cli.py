@@ -56,7 +56,7 @@ def solve_command(args: argparse.Namespace) -> None:
     else:
         result = run_admm(data, rho=args.rho, **common)
     result.params["tol"] = args.tol
-    artifacts = write_run_artifacts(result, make_plot=True)
+    artifacts = write_run_artifacts(result, make_plot=True, output_dir=args.output_dir)
     print(json.dumps({key: [str(p) for p in value] if isinstance(value, list) else str(value) for key, value in artifacts.items()}, indent=2))
 
 
@@ -65,7 +65,7 @@ def convert_mat_command(args: argparse.Namespace) -> None:
 
 
 def plot_command(args: argparse.Namespace) -> None:
-    paths = plot_convergence(args.history)
+    paths = plot_convergence(args.history, output_dir=args.output_dir)
     print(json.dumps([str(path) for path in paths], indent=2))
 
 
@@ -185,6 +185,7 @@ def build_parser() -> argparse.ArgumentParser:
     solve.add_argument("--seed", type=int, default=None)
     solve.add_argument("--verbose", action=argparse.BooleanOptionalAction, default=True)
     solve.add_argument("--period", type=_positive_int_arg, default=100)
+    solve.add_argument("--output-dir", default=None)
     solve.set_defaults(func=solve_command)
 
     convert = subparsers.add_parser("convert-mat")
@@ -194,6 +195,7 @@ def build_parser() -> argparse.ArgumentParser:
     plot = subparsers.add_parser("plot")
     plot.add_argument("--history", required=True)
     plot.add_argument("--summary", default=None)
+    plot.add_argument("--output-dir", default=None)
     plot.set_defaults(func=plot_command)
 
     diagnose = subparsers.add_parser("diagnose")

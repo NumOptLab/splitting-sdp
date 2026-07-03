@@ -1,4 +1,4 @@
-"""Dense PDHG for standard-form SDP."""
+"""Sparse-aware PDHG for standard-form SDP."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import Literal
 
 import numpy as np
 
-from core.operators import apply_A, apply_AT, operator_norm_squared
-from core.psd import project_psd, symmetrize
+from core.operators import SDPOperator, as_sdp_operator
+from core.psd import PSDProjection, project_psd_with_eigs, symmetrize
 from core.residuals import pdhg_residuals
 from solvers.common import (
     SolverResult,
@@ -40,17 +40,42 @@ def pdhg_step(
     theta: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """One fixed-step PDHG update from Eq. (2) in the PDHG-SDP paper."""
-    X_next = project_psd(X - tau * (C - apply_AT(A, y)))
+    op = as_sdp_operator(A, n=C.shape[0])
+    S = symmetrize(C - op.adjoint(y))
+    X_next = project_psd_with_eigs(X - tau * S).matrix
     X_bar = X_next + theta * (X_next - X)
-    y_next = y + sigma * (b - apply_A(A, X_bar))
+    y_next = y + sigma * (b - op.apply(X_bar))
     return X_next, y_next
+
+
+def _fixed_step_cached(
+    X: np.ndarray,
+    y: np.ndarray,
+    AX: np.ndarray,
+    S: np.ndarray,
+    op: SDPOperator,
+    b: np.ndarray,
+    tau: float,
+    sigma: float,
+    *,
+    theta: float,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, PSDProjection]:
+    projection = project_psd_with_eigs(X - tau * S)
+    X_next = projection.matrix
+    X_bar = X_next + theta * (X_next - X)
+    AX_bar = op.apply(X_bar)
+    AX_next = (AX_bar + theta * AX) / (1.0 + theta)
+    y_next = y + sigma * (b - AX_bar)
+    S_next = symmetrize(S - op.adjoint(y_next - y))
+    return X_next, y_next, AX_next, S_next, projection
 
 
 def _line_search_step(
     X: np.ndarray,
     y: np.ndarray,
-    C: np.ndarray,
-    A: np.ndarray,
+    AX: np.ndarray,
+    S: np.ndarray,
+    op: SDPOperator,
     b: np.ndarray,
     tau: float,
     beta: float,
@@ -59,7 +84,7 @@ def _line_search_step(
     backtrack: float,
     growth: float,
     max_ls_iters: int,
-) -> tuple[np.ndarray, np.ndarray, float, float, int]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, PSDProjection, float, float, int]:
     """Malitsky-Pock Algorithm 1 line search for the SDP saddle form.
 
     We use ``K=-A``, ``g(X)=<C,X>+I_{S_+}(X)``, and
@@ -72,21 +97,30 @@ def _line_search_step(
     for ls_iter in range(1, max_ls_iters + 1):
         theta_trial = tau_trial / tau
         sigma_trial = beta * tau_trial
-        X_trial = project_psd(X - tau_trial * (C - apply_AT(A, y)))
+        projection = project_psd_with_eigs(X - tau_trial * S)
+        X_trial = projection.matrix
         X_bar = X_trial + theta_trial * (X_trial - X)
-        y_trial = y + sigma_trial * (b - apply_A(A, X_bar))
+        AX_bar = op.apply(X_bar)
+        AX_trial = (AX_bar + theta_trial * AX) / (1.0 + theta_trial)
+        y_trial = y + sigma_trial * (b - AX_bar)
         dy = y_trial - y
-        lhs = float(np.sqrt(beta) * tau_trial * np.linalg.norm(apply_AT(A, dy), ord="fro"))
+        AT_dy = op.adjoint(dy)
+        lhs = float(np.sqrt(beta) * tau_trial * np.linalg.norm(AT_dy, ord="fro"))
         rhs = float(delta * np.linalg.norm(dy))
         if lhs <= rhs + 1e-15:
             accepted_steps = ls_iter
-            return X_trial, y_trial, tau_trial, sigma_trial, accepted_steps
+            return X_trial, y_trial, AX_trial, symmetrize(S - AT_dy), projection, tau_trial, sigma_trial, accepted_steps
         tau_trial *= backtrack
     sigma_trial = beta * tau_trial
-    X_trial = project_psd(X - tau_trial * (C - apply_AT(A, y)))
+    theta_trial = tau_trial / tau
+    projection = project_psd_with_eigs(X - tau_trial * S)
+    X_trial = projection.matrix
     X_bar = X_trial + (tau_trial / tau) * (X_trial - X)
-    y_trial = y + sigma_trial * (b - apply_A(A, X_bar))
-    return X_trial, y_trial, tau_trial, sigma_trial, max_ls_iters
+    AX_bar = op.apply(X_bar)
+    AX_trial = (AX_bar + theta_trial * AX) / (1.0 + theta_trial)
+    y_trial = y + sigma_trial * (b - AX_bar)
+    AT_dy = op.adjoint(y_trial - y)
+    return X_trial, y_trial, AX_trial, symmetrize(S - AT_dy), projection, tau_trial, sigma_trial, max_ls_iters
 
 
 def run_pdhg(
@@ -108,7 +142,7 @@ def run_pdhg(
     verbose: bool = True,
     period: int = 100,
 ) -> SolverResult:
-    """Run dense PDHG with optional Malitsky-Pock line search."""
+    """Run PDHG with optional Malitsky-Pock line search."""
     if max_iters <= 0:
         raise ValueError("max_iters must be positive")
     if tol <= 0.0:
@@ -121,18 +155,21 @@ def run_pdhg(
 
     total_start = time.perf_counter()
     setup_start = time.perf_counter()
-    L2 = max(operator_norm_squared(data.A), 1e-16)
+    op = as_sdp_operator(data.A, n=data.n)
     if tau is None and sigma is None:
+        L2 = max(op.norm_squared(), 1e-16)
         step = 0.99 / np.sqrt(L2)
         tau = step
         sigma = step
     elif tau is None:
         if sigma is None or sigma <= 0.0:
             raise ValueError("sigma must be positive")
+        L2 = max(op.norm_squared(), 1e-16)
         tau = 0.99 / (sigma * L2)
     elif sigma is None:
         if tau <= 0.0:
             raise ValueError("tau must be positive")
+        L2 = max(op.norm_squared(), 1e-16)
         sigma = 0.99 / (tau * L2)
     if tau <= 0.0 or sigma <= 0.0:
         raise ValueError("tau and sigma must be positive")
@@ -143,11 +180,13 @@ def run_pdhg(
     sigma_0 = sigma
     beta = sigma / tau
     X, y = init_xy(data, init, seed)
+    AX = op.apply(X)
+    S = symmetrize(data.C - op.adjoint(y))
     setup_time = time.perf_counter() - setup_start
 
     solve_start = time.perf_counter()
     history: list[dict[str, float | int | str]] = []
-    metrics = pdhg_residuals(X, y, data.C, data.A, data.b)
+    metrics = pdhg_residuals(X, y, data.C, op, data.b, AX=AX, S=S)
     row0 = history_row(
         0,
         metrics,
@@ -181,18 +220,19 @@ def run_pdhg(
     reason = "maximum iterations reached"
     total_line_search_steps = 0
     X_prev = X.copy()
-    S_prev = symmetrize(data.C - apply_AT(data.A, y))
+    S_prev = S.copy()
 
     for iteration in range(1, max_iters + 1):
-        Z_prev = symmetrize(X - tau * symmetrize(data.C - apply_AT(data.A, y)))
+        Z_prev = symmetrize(X - tau * S)
         X_prev = X.copy()
-        S_prev = symmetrize(data.C - apply_AT(data.A, y))
+        S_prev = S.copy()
         if adapt_is_enabled(adapt, iteration, adapt_iters):
-            X, y, tau, sigma, accepted = _line_search_step(
+            X, y, AX, S, projection, tau, sigma, accepted = _line_search_step(
                 X,
                 y,
-                data.C,
-                data.A,
+                AX,
+                S,
+                op,
                 data.b,
                 tau,
                 beta,
@@ -203,13 +243,23 @@ def run_pdhg(
             )
             total_line_search_steps += accepted
         else:
-            X, y = pdhg_step(X, y, data.C, data.A, data.b, tau, sigma, theta=theta)
+            X, y, AX, S, projection = _fixed_step_cached(X, y, AX, S, op, data.b, tau, sigma, theta=theta)
             accepted = 0
 
-        metrics = pdhg_residuals(X, y, data.C, data.A, data.b)
+        slack_projection = project_psd_with_eigs(S)
+        metrics = pdhg_residuals(
+            X,
+            y,
+            data.C,
+            op,
+            data.b,
+            AX=AX,
+            S=S,
+            S_projection=slack_projection,
+            X_eigs=projection.clipped_eigvals,
+        )
         elapsed = time.perf_counter() - solve_start
-        S_current = symmetrize(data.C - apply_AT(data.A, y))
-        Z_next = symmetrize(X - tau * S_current)
+        Z_next = symmetrize(X - tau * S)
         Z_diff = float(np.linalg.norm(Z_next - Z_prev, ord="fro"))
         row = history_row(
             iteration,
@@ -237,7 +287,6 @@ def run_pdhg(
             break
 
     solve_time = time.perf_counter() - solve_start
-    S = symmetrize(data.C - apply_AT(data.A, y))
     Z_last = symmetrize(X - tau * S)
     total_time = time.perf_counter() - total_start
     if verbose:

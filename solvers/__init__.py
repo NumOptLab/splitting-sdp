@@ -1,4 +1,4 @@
-"""Dense first-order SDP solvers."""
+"""Sparse-aware first-order SDP solvers."""
 
 from __future__ import annotations
 

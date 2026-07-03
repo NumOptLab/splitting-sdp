@@ -26,13 +26,13 @@ def rank_stabilization_iteration(ranks: list[int]) -> int | None:
     return None
 
 
-def plot_convergence(history_path: str | Path, *, stem: str | None = None) -> list[Path]:
-    """Plot KKT residual and rank, saving PNG and EPS under results."""
+def plot_convergence(history_path: str | Path, *, stem: str | None = None, output_dir: str | Path | None = None) -> list[Path]:
+    """Plot KKT residual and rank, saving PNG under results."""
     history = pd.read_csv(history_path)
     if stem is None:
         stem = Path(history_path).stem.replace("_history", "")
     stem = safe_filename(stem)
-    out_dir = results_dir()
+    out_dir = results_dir(output_dir)
     iterations = history["iter"]
     fig, ax_left = plt.subplots(figsize=(7.0, 4.5))
     ax_left.semilogy(iterations, history["kkt_res"], color="tab:blue", label="KKT residual")
@@ -62,8 +62,6 @@ def plot_convergence(history_path: str | Path, *, stem: str | None = None) -> li
     fig.tight_layout()
 
     png_path = out_dir / f"{stem}_convergence.png"
-    eps_path = out_dir / f"{stem}_convergence.eps"
     fig.savefig(png_path, dpi=200)
-    fig.savefig(eps_path, format="eps")
     plt.close(fig)
-    return [png_path, eps_path]
+    return [png_path]

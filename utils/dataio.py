@@ -23,6 +23,17 @@ class SDPData:
     input_path: str | None = None
     input_format: str = "memory"
 
+    def __post_init__(self) -> None:
+        C = symmetrize(np.asarray(self.C, dtype=float))
+        b = np.asarray(self.b, dtype=float).reshape(-1)
+        A = operator_matrix(self.A)
+        expected_cols = C.shape[0] * (C.shape[0] + 1) // 2
+        if A.shape != (b.size, expected_cols):
+            raise ValueError(f"A must have shape {(b.size, expected_cols)}, got {A.shape}.")
+        object.__setattr__(self, "C", C)
+        object.__setattr__(self, "A", A)
+        object.__setattr__(self, "b", b)
+
     @property
     def n(self) -> int:
         return int(self.C.shape[0])
