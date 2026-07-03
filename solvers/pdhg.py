@@ -17,7 +17,8 @@ from solvers.common import (
     init_xy,
     print_progress_header,
     print_progress_row,
-    print_run_info,
+    print_final_summary_table,
+    print_run_info_table,
     should_log_progress,
     validate_period,
 )
@@ -158,16 +159,16 @@ def run_pdhg(
     )
     history.append(row0)
     if verbose:
-        print_run_info(
+        initial_stepsize = f"tau={tau:.6g}, sigma={sigma:.6g}, theta={theta:.6g}"
+        print_run_info_table(
             data,
             "pdhg",
-            (
-                f"init={init}",
-                f"stepsize=tau={tau:.6g},sigma={sigma:.6g},theta={theta:.6g}",
-                f"line-search={'on' if adapt != 'none' else 'off'}",
-                f"adapt={adapt}",
-                f"adapt_iters={adapt_iters}",
-            ),
+            initial_stepsize,
+            adapt,
+            adapt_iters,
+            init,
+            tol,
+            max_iters,
         )
         print_progress_header("pdhg", ("tau", "sigma"), include_complementarity=True)
         print_progress_row(
@@ -239,6 +240,23 @@ def run_pdhg(
     S = symmetrize(data.C - apply_AT(data.A, y))
     Z_last = symmetrize(X - tau * S)
     total_time = time.perf_counter() - total_start
+    if verbose:
+        print_final_summary_table(
+            data,
+            "pdhg",
+            f"tau={tau_0:.6g}, sigma={sigma_0:.6g}, theta={theta:.6g}",
+            f"tau={tau:.6g}, sigma={sigma:.6g}",
+            adapt,
+            adapt_iters,
+            init,
+            tol,
+            max_iters,
+            status,
+            int(history[-1]["iter"]),
+            X,
+            S,
+            Z_last,
+        )
     return SolverResult(
         algorithm="pdhg",
         status=status,
@@ -259,6 +277,7 @@ def run_pdhg(
             "sigma": sigma,
             "theta": theta,
             "max_iters": max_iters,
+            "tol": tol,
             "adapt": adapt,
             "adapt_iters": adapt_iters,
             "init": init,

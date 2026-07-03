@@ -11,7 +11,7 @@ import h5py
 import numpy as np
 import pandas as pd
 
-from core.psd import eigvalsh, lambda_min_abs
+from core.psd import eigvalsh, lambda_min_abs, min_positive_eig, psd_rank
 from solvers.common import SolverResult
 from utils.h5io import write_maybe_sparse, write_sdp_operator
 from version import __version__
@@ -63,8 +63,6 @@ def _adapt_label(params: dict[str, Any]) -> str:
 
 
 def _summary_status(status: str) -> str:
-    if status == "converged":
-        return "solved"
     return status
 
 
@@ -102,6 +100,22 @@ def write_solution(result: SolverResult, stem: str) -> Path:
         handle.attrs["solver_name"] = "pdhg-sdp"
         handle.attrs["solver_version"] = __version__
         handle.attrs["algorithm"] = result.algorithm
+        handle.attrs["status"] = result.status
+        handle.attrs["iterations"] = result.iterations
+        handle.attrs["total_iter"] = result.iterations
+        handle.attrs["termination_reason"] = result.termination_reason
+        handle.attrs["rank_X"] = psd_rank(result.X)
+        handle.attrs["rank_S"] = psd_rank(result.S)
+        min_pos_x = min_positive_eig(result.X)
+        min_pos_s = min_positive_eig(result.S)
+        handle.attrs["min_pos_eig_X"] = np.nan if min_pos_x is None else min_pos_x
+        handle.attrs["min_pos_eig_S"] = np.nan if min_pos_s is None else min_pos_s
+        if "rho" in result.params:
+            handle.attrs["rho_final"] = _jsonable(result.params["rho"])
+        if "tau" in result.params:
+            handle.attrs["tau_final"] = _jsonable(result.params["tau"])
+        if "sigma" in result.params:
+            handle.attrs["sigma_final"] = _jsonable(result.params["sigma"])
         handle.attrs["problem_name"] = result.data.problem_name
         handle.attrs["input_path"] = "" if result.data.input_path is None else result.data.input_path
         handle.attrs["input_format"] = result.data.input_format
@@ -114,6 +128,8 @@ def write_summary(result: SolverResult, stem: str, history_path: Path, solution_
     path = results_dir() / f"{stem}_summary.json"
     metrics = result.metrics.as_dict()
     params = result.params
+    min_pos_x = min_positive_eig(result.X)
+    min_pos_s = min_positive_eig(result.S)
     summary = {
         "solver_name": "pdhg-sdp",
         "solver_version": __version__,
@@ -126,8 +142,10 @@ def write_summary(result: SolverResult, stem: str, history_path: Path, solution_
         "m": result.data.m,
         "block_sizes": result.data.block_sizes,
         "status": _summary_status(result.status),
+        "solver_status": result.status,
         "total_iter": result.iterations,
         "iterations": result.iterations,
+        "final_iteration": result.iterations,
         "max_iters": params.get("max_iters"),
         "stopping_tolerance": params.get("tol"),
         "primal_objective": metrics["primal_obj"],
@@ -137,12 +155,19 @@ def write_summary(result: SolverResult, stem: str, history_path: Path, solution_
         "primal_residual": metrics["primal_res"],
         "dual_residual": metrics["dual_res"],
         "max_kkt_residual": metrics["kkt_res"],
+        "rank_X": psd_rank(result.X),
+        "rank_S": psd_rank(result.S),
+        "min_pos_eig_X": min_pos_x,
+        "min_pos_eig_S": min_pos_s,
         "rho_0": params.get("rho_0"),
         "rho": params.get("rho"),
+        "rho_final": params.get("rho"),
         "tau_0": params.get("tau_0"),
         "tau": params.get("tau"),
+        "tau_final": params.get("tau"),
         "sigma_0": params.get("sigma_0"),
         "sigma": params.get("sigma"),
+        "sigma_final": params.get("sigma"),
         "min_eig_|Z|": None if result.Z_last is None else lambda_min_abs(result.Z_last),
         "adapt": _adapt_label(params),
         "adaptation_mode": params.get("adapt"),

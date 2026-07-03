@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
+from core.psd import NUM_ZERO_TOL
 from solvers.admm import run_admm
 from solvers.pdhg import run_pdhg
 from utils.dataio import mat_to_dat_s, read_dat_s
@@ -89,8 +90,17 @@ def format_diagnostics(report: dict[str, object]) -> str:
         "tau_0",
         "sigma_0",
         "rho_0",
+        "tau",
+        "sigma",
+        "rho",
         "adapt",
+        "solver_status",
+        "final_iteration",
         "max_iters",
+        "rank_X",
+        "rank_S",
+        "min_pos_eig_X",
+        "min_pos_eig_S",
         "min_eig_|Z|",
     ]
     labels = {
@@ -103,8 +113,17 @@ def format_diagnostics(report: dict[str, object]) -> str:
         "tau_0": "tau_0",
         "sigma_0": "sigma_0",
         "rho_0": "rho_0",
+        "tau": "tau_final",
+        "sigma": "sigma_final",
+        "rho": "rho_final",
         "adapt": "adapt",
+        "solver_status": "solver_status",
+        "final_iteration": "final_iteration",
         "max_iters": "max_iters",
+        "rank_X": "rank_X",
+        "rank_S": "rank_S",
+        "min_pos_eig_X": "min_pos_eig_X",
+        "min_pos_eig_S": "min_pos_eig_S",
         "min_eig_|Z|": "min_eig_|Z|",
     }
     rows = [(labels[key], report[key]) for key in scalar_order if key in report]
@@ -181,7 +200,7 @@ def build_parser() -> argparse.ArgumentParser:
     diagnose.add_argument("--solution", required=True)
     diagnose.add_argument("--check-nd", type=_bool_arg, default=False)
     diagnose.add_argument("--maxcut", action="store_true", default=False)
-    diagnose.add_argument("--tol", type=float, default=1e-8)
+    diagnose.add_argument("--tol", type=float, default=NUM_ZERO_TOL)
     diagnose.set_defaults(func=diagnose_command)
 
     sparsify = subparsers.add_parser("sparsify-h5")

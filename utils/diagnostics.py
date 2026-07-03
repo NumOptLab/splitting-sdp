@@ -10,7 +10,7 @@ import numpy as np
 from scipy import sparse
 
 from core.operators import operator_matrix, svec
-from core.psd import eigvalsh, lambda_min_abs, psd_rank, symmetrize
+from core.psd import NUM_ZERO_TOL, eigvalsh, lambda_min_abs, min_positive_eig, psd_rank, symmetrize
 from utils.h5io import read_h5_array, read_sdp_operator
 
 
@@ -30,7 +30,7 @@ def rank_stabilization_iteration(ranks: list[int]) -> int | None:
     return _rank_stabilization_iteration(ranks)
 
 
-def strict_complementarity(X: np.ndarray, S: np.ndarray, *, tol: float = 1e-8) -> bool:
+def strict_complementarity(X: np.ndarray, S: np.ndarray, *, tol: float = NUM_ZERO_TOL) -> bool:
     return psd_rank(X, atol=tol, rtol=tol) + psd_rank(S, atol=tol, rtol=tol) == X.shape[0]
 
 
@@ -86,7 +86,7 @@ def nondegeneracy_reports(
     S: np.ndarray,
     A: np.ndarray | sparse.spmatrix,
     *,
-    tol: float = 1e-8,
+    tol: float = NUM_ZERO_TOL,
 ) -> dict[str, NondegeneracyReport]:
     Xs = symmetrize(X)
     Ss = symmetrize(S)
@@ -125,7 +125,7 @@ def _maxcut_diag_map(columns: np.ndarray) -> np.ndarray:
     return np.column_stack(values)
 
 
-def maxcut_nondegeneracy_reports(X: np.ndarray, S: np.ndarray, *, tol: float = 1e-8) -> dict[str, NondegeneracyReport]:
+def maxcut_nondegeneracy_reports(X: np.ndarray, S: np.ndarray, *, tol: float = NUM_ZERO_TOL) -> dict[str, NondegeneracyReport]:
     Xs = symmetrize(X)
     Ss = symmetrize(S)
     n = Xs.shape[0]
@@ -185,6 +185,15 @@ def _seed_value(handle: h5py.File) -> int | None:
     return int(seed)
 
 
+def _optional_float(value: object) -> float | None:
+    if value is None:
+        return None
+    parsed = float(value)
+    if np.isnan(parsed):
+        return None
+    return parsed
+
+
 def _nd_dict(report: NondegeneracyReport) -> dict[str, bool | int | float]:
     return {
         "holds": report.holds,
@@ -195,7 +204,7 @@ def _nd_dict(report: NondegeneracyReport) -> dict[str, bool | int | float]:
     }
 
 
-def diagnose_solution(path: str | Path, *, check_nd: bool = False, tol: float = 1e-8, maxcut: bool = False) -> dict[str, object]:
+def diagnose_solution(path: str | Path, *, check_nd: bool = False, tol: float = NUM_ZERO_TOL, maxcut: bool = False) -> dict[str, object]:
     """Read a solution HDF5 file and return requested diagnostics."""
     path_obj = Path(path)
     with h5py.File(path_obj, "r") as handle:
@@ -212,16 +221,25 @@ def diagnose_solution(path: str | Path, *, check_nd: bool = False, tol: float = 
             "init": init,
             "adapt": _adapt_label(handle),
             "max_iters": _attr(handle, "max_iters", None),
+            "final_iteration": _attr(handle, "iterations", None),
+            "solver_status": _attr(handle, "status", None),
+            "rank_X": psd_rank(X),
+            "rank_S": psd_rank(S),
+            "min_pos_eig_X": min_positive_eig(X),
+            "min_pos_eig_S": min_positive_eig(S),
         }
         if init == "random":
             result["seed"] = _seed_value(handle)
         if algorithm == "pdhg":
             result["tau_0"] = float(_attr(handle, "tau_0", _attr(handle, "tau", float("nan"))))
             result["sigma_0"] = float(_attr(handle, "sigma_0", _attr(handle, "sigma", float("nan"))))
+            result["tau"] = _optional_float(_attr(handle, "tau_final", _attr(handle, "tau", None)))
+            result["sigma"] = _optional_float(_attr(handle, "sigma_final", _attr(handle, "sigma", None)))
             if "Z_last" in handle:
                 result["min_eig_|Z|"] = lambda_min_abs(np.asarray(read_h5_array(handle["Z_last"])))
         elif algorithm == "admm":
             result["rho_0"] = float(_attr(handle, "rho_0", _attr(handle, "rho", float("nan"))))
+            result["rho"] = _optional_float(_attr(handle, "rho_final", _attr(handle, "rho", None)))
             if "Z_last" in handle:
                 result["min_eig_|Z|"] = lambda_min_abs(np.asarray(read_h5_array(handle["Z_last"])))
         if check_nd:

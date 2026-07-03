@@ -8,6 +8,7 @@ from typing import TextIO
 
 import numpy as np
 
+from core.psd import lambda_min_abs, min_positive_eig, psd_rank
 from core.residuals import ResidualMetrics
 from utils.dataio import SDPData
 
@@ -64,6 +65,111 @@ def print_run_info(
     stream = sys.stderr if stream is None else stream
     print(f"SDP info: name={data.problem_name} n={data.n} m={data.m} block_sizes={data.block_sizes}", file=stream)
     print(f"Solver info: algorithm={algorithm.upper()} {' '.join(details)}", file=stream)
+
+
+def _format_table_value(value: object) -> str:
+    if value is None:
+        return "n/a"
+    if isinstance(value, float):
+        return f"{value:.6g}"
+    if isinstance(value, tuple):
+        return ", ".join(_format_table_value(item) for item in value)
+    return str(value)
+
+
+def _print_key_value_table(
+    title: str,
+    rows: tuple[tuple[str, object], ...],
+    *,
+    stream: TextIO | None = None,
+) -> None:
+    stream = sys.stderr if stream is None else stream
+    key_width = max(len(key) for key, _ in rows)
+    value_width = max(len(_format_table_value(value)) for _, value in rows)
+    border = "+" + "-" * (key_width + 2) + "+" + "-" * (value_width + 2) + "+"
+    print(title, file=stream)
+    print(border, file=stream)
+    for key, value in rows:
+        formatted = _format_table_value(value)
+        print(f"| {key:<{key_width}} | {formatted:<{value_width}} |", file=stream)
+    print(border, file=stream)
+
+
+def adapt_label(mode: str, adapt_iters: int) -> str:
+    if mode == "first-k":
+        return f"first-k ({adapt_iters})"
+    return mode
+
+
+def run_info_rows(
+    data: SDPData,
+    algorithm: str,
+    initial_stepsize: str,
+    adapt: str,
+    adapt_iters: int,
+    init: str,
+    tol: float,
+    max_iters: int,
+) -> tuple[tuple[str, object], ...]:
+    return (
+        ("SDP name", data.problem_name),
+        ("n", data.n),
+        ("m", data.m),
+        ("algorithm", algorithm.upper()),
+        ("initial stepsize", initial_stepsize),
+        ("adapt", adapt_label(adapt, adapt_iters)),
+        ("initialization", init),
+        ("tolerance", tol),
+        ("maximum iteration", max_iters),
+    )
+
+
+def print_run_info_table(
+    data: SDPData,
+    algorithm: str,
+    initial_stepsize: str,
+    adapt: str,
+    adapt_iters: int,
+    init: str,
+    tol: float,
+    max_iters: int,
+    *,
+    stream: TextIO | None = None,
+) -> None:
+    rows = run_info_rows(data, algorithm, initial_stepsize, adapt, adapt_iters, init, tol, max_iters)
+    _print_key_value_table("Run configuration", rows, stream=stream)
+
+
+def print_final_summary_table(
+    data: SDPData,
+    algorithm: str,
+    initial_stepsize: str,
+    final_stepsize: str,
+    adapt: str,
+    adapt_iters: int,
+    init: str,
+    tol: float,
+    max_iters: int,
+    status: str,
+    iteration: int,
+    X: np.ndarray,
+    S: np.ndarray,
+    Z: np.ndarray | None,
+    *,
+    stream: TextIO | None = None,
+) -> None:
+    rows = run_info_rows(data, algorithm, initial_stepsize, adapt, adapt_iters, init, tol, max_iters)
+    rows = rows + (
+        ("final stepsize", final_stepsize),
+        ("final iteration", iteration),
+        ("solver status", status),
+        ("rank_X", psd_rank(X)),
+        ("rank_S", psd_rank(S)),
+        ("min_pos_eig_X", min_positive_eig(X)),
+        ("min_pos_eig_S", min_positive_eig(S)),
+        ("min_eig_|Z|", None if Z is None else lambda_min_abs(Z)),
+    )
+    _print_key_value_table("Final summary", rows, stream=stream)
 
 
 def print_progress_header(

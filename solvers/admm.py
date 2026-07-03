@@ -17,7 +17,8 @@ from solvers.common import (
     init_xys,
     print_progress_header,
     print_progress_row,
-    print_run_info,
+    print_final_summary_table,
+    print_run_info_table,
     should_log_progress,
     validate_period,
 )
@@ -79,16 +80,16 @@ def run_admm(
     row0 = history_row(0, metrics, rho=rho, Z_diff=0.0, elapsed=0.0)
     history.append(row0)
     if verbose:
-        print_run_info(
+        initial_stepsize = f"rho={rho:.6g}"
+        print_run_info_table(
             data,
             "admm",
-            (
-                f"init={init}",
-                f"stepsize=rho={rho:.6g}",
-                f"line-search=n/a",
-                f"adapt={adapt}",
-                f"adapt_iters={adapt_iters}",
-            ),
+            initial_stepsize,
+            adapt,
+            adapt_iters,
+            init,
+            tol,
+            max_iters,
         )
         print_progress_header("admm", ("rho",))
         print_progress_row(row0, total_elapsed=time.perf_counter() - total_start, extra_values=(rho,))
@@ -148,6 +149,23 @@ def run_admm(
     solve_time = time.perf_counter() - solve_start
     Z_last = symmetrize(X - rho * S)
     total_time = time.perf_counter() - total_start
+    if verbose:
+        print_final_summary_table(
+            data,
+            "admm",
+            f"rho={rho_0:.6g}",
+            f"rho={rho:.6g}",
+            adapt,
+            adapt_iters,
+            init,
+            tol,
+            max_iters,
+            status,
+            int(history[-1]["iter"]),
+            X,
+            S,
+            Z_last,
+        )
     return SolverResult(
         algorithm="admm",
         status=status,
@@ -165,6 +183,7 @@ def run_admm(
             "rho_0": rho_0,
             "rho": rho,
             "max_iters": max_iters,
+            "tol": tol,
             "adapt": adapt,
             "adapt_iters": adapt_iters,
             "init": init,
