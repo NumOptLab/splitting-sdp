@@ -195,7 +195,7 @@ class GramSolver:
 
 
 def _build_dense_gram_solver(G: np.ndarray, *, rcond: float) -> GramSolver:
-    """Build a stable solver and diagnostics for ``A A^*``."""
+    """Build a dense solver and diagnostics for ``A A^*``."""
     if G.size == 0:
         return GramSolver(G, 0, 0.0, 1.0, None, None)
 
@@ -215,15 +215,46 @@ def _build_dense_gram_solver(G: np.ndarray, *, rcond: float) -> GramSolver:
     return GramSolver(G, rank, min_singular, condition, None, np.linalg.pinv(G, rcond=rcond))
 
 
+def _should_use_dense_gram(G: sparse.spmatrix) -> bool:
+    """Return whether a sparse Gram is cheap enough to solve densely."""
+    m = int(G.shape[0])
+    if m <= 64:
+        return True
+    density = G.nnz / float(m * m)
+    return m <= 512 and density >= 0.20
+
+
+def _with_sparse_gram(solver: GramSolver, G: sparse.csr_matrix) -> GramSolver:
+    """Keep sparse Gram storage while reusing a dense solve backend."""
+    return GramSolver(
+        G,
+        solver.rank,
+        solver.min_singular,
+        solver.condition,
+        solver.chol_factor,
+        solver.pinv,
+        sparse_factor=solver.sparse_factor,
+        sparse_lsmr=solver.sparse_lsmr,
+    )
+
+
+def _build_sparse_gram_solver(G: sparse.csr_matrix, *, rcond: float) -> GramSolver:
+    """Build a sparse solver and diagnostics for ``A A^*``."""
+    if G.shape[0] == 0:
+        return GramSolver(G, 0, 0.0, 1.0, None, None)
+    if _should_use_dense_gram(G):
+        dense_solver = _build_dense_gram_solver(G.toarray(), rcond=rcond)
+        return _with_sparse_gram(dense_solver, G)
+    try:
+        factor = sparse_linalg.factorized(G.tocsc())
+        return GramSolver(G, G.shape[0], float("nan"), float("nan"), None, None, sparse_factor=factor)
+    except RuntimeError:
+        return GramSolver(G, 0, 0.0, float("inf"), None, None, sparse_lsmr=True)
+
+
 def build_gram_solver(A: np.ndarray | sparse.spmatrix | SDPOperator, *, rcond: float = 1e-12) -> GramSolver:
     """Build a stable solver and diagnostics for ``A A^*``."""
     G = gram_matrix(A)
     if sparse.issparse(G):
-        if G.shape[0] == 0:
-            return GramSolver(G, 0, 0.0, 1.0, None, None)
-        try:
-            factor = sparse_linalg.factorized(G.tocsc())
-            return GramSolver(G, G.shape[0], float("nan"), float("nan"), None, None, sparse_factor=factor)
-        except RuntimeError:
-            return GramSolver(G, 0, 0.0, float("inf"), None, None, sparse_lsmr=True)
+        return _build_sparse_gram_solver(G.tocsr(), rcond=rcond)
     return _build_dense_gram_solver(np.asarray(G, dtype=float), rcond=rcond)

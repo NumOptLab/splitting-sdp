@@ -53,8 +53,8 @@ def eigen_info_from_values(
     return EigenInfo(
         values=eigs,
         rank=int(np.count_nonzero(eigs > threshold)),
-        min_eig=float(eigs[0]),
-        min_positive_eig=None if positive.size == 0 else float(positive[0]),
+        min_eig=float(np.min(eigs)),
+        min_positive_eig=None if positive.size == 0 else float(np.min(positive)),
         min_abs_eig=float(np.min(np.abs(eigs))),
     )
 
@@ -62,16 +62,6 @@ def eigen_info_from_values(
 def eigvalsh(matrix: np.ndarray) -> np.ndarray:
     """Eigenvalues of the symmetric part of ``matrix``."""
     return np.linalg.eigvalsh(symmetrize(matrix))
-
-
-def spectral_info(
-    matrix: np.ndarray,
-    *,
-    atol: float = NUM_ZERO_TOL,
-    rtol: float = NUM_ZERO_TOL,
-) -> EigenInfo:
-    """Eigenvalue diagnostics for the symmetric part of ``matrix``."""
-    return eigen_info_from_values(eigvalsh(matrix), atol=atol, rtol=rtol)
 
 
 def project_psd_with_eigs(matrix: np.ndarray) -> PSDProjection:
@@ -97,7 +87,7 @@ def project_psd(matrix: np.ndarray) -> np.ndarray:
 
 def min_eig(matrix: np.ndarray) -> float:
     """Smallest eigenvalue of the symmetric part of ``matrix``."""
-    return spectral_info(matrix).min_eig
+    return eigen_info_from_values(eigvalsh(matrix)).min_eig
 
 
 def rank_from_eigs(values: np.ndarray, *, atol: float = NUM_ZERO_TOL, rtol: float = NUM_ZERO_TOL) -> int:
@@ -111,14 +101,14 @@ def rank_from_eigs(values: np.ndarray, *, atol: float = NUM_ZERO_TOL, rtol: floa
 
 def psd_rank(matrix: np.ndarray, *, atol: float = NUM_ZERO_TOL, rtol: float = NUM_ZERO_TOL) -> int:
     """Numerical PSD rank using positive eigenvalues."""
-    return spectral_info(matrix, atol=atol, rtol=rtol).rank
+    return eigen_info_from_values(eigvalsh(matrix), atol=atol, rtol=rtol).rank
 
 
 def lambda_min_abs(matrix: np.ndarray) -> float:
     """Smallest absolute eigenvalue of the symmetric part of ``matrix``."""
-    return spectral_info(matrix).min_abs_eig
+    return eigen_info_from_values(eigvalsh(matrix)).min_abs_eig
 
 
 def min_positive_eig(matrix: np.ndarray, *, tol: float = NUM_ZERO_TOL) -> float | None:
     """Smallest eigenvalue above ``tol`` for the symmetric part of ``matrix``."""
-    return spectral_info(matrix, atol=tol, rtol=tol).min_positive_eig
+    return eigen_info_from_values(eigvalsh(matrix), atol=tol, rtol=tol).min_positive_eig

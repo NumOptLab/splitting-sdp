@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 import numpy as np
 
 from core.operators import apply_A, apply_AT
-from core.psd import PSDProjection, eigen_info_from_values, project_psd_with_eigs, spectral_info, symmetrize
+from core.psd import PSDProjection, eigen_info_from_values, eigvalsh, project_psd_with_eigs, symmetrize
 
 
 @dataclass(frozen=True)
@@ -69,12 +69,12 @@ def admm_residuals(
     dual_res = float(np.linalg.norm(ATy + Ss - C, ord="fro") / (1.0 + np.linalg.norm(C, ord="fro")))
     complementarity = float(np.sum(Xs * Ss) / (1.0 + abs(primal_obj) + abs(dual_obj)))
     if X_eigs is None:
-        x_info = spectral_info(Xs)
+        x_info = eigen_info_from_values(eigvalsh(Xs))
         rank_x, min_x = x_info.rank, x_info.min_eig
     else:
         rank_x, min_x = _rank_min_from_eigs(X_eigs)
     if S_eigs is None:
-        min_s = spectral_info(Ss).min_eig
+        min_s = eigen_info_from_values(eigvalsh(Ss)).min_eig
     else:
         _, min_s = _rank_min_from_eigs(S_eigs)
     kkt_res = max(primal_res, dual_res, rel_gap)
@@ -116,7 +116,7 @@ def pdhg_residuals(
     AX = apply_A(A, Xs) if AX is None else np.asarray(AX, dtype=float).reshape(-1)
     primal_res = float(np.linalg.norm(AX - b) / (1.0 + np.linalg.norm(b)))
     if X_eigs is None:
-        x_info = spectral_info(Xs)
+        x_info = eigen_info_from_values(eigvalsh(Xs))
         rank_x, min_x = x_info.rank, x_info.min_eig
     else:
         rank_x, min_x = _rank_min_from_eigs(X_eigs)
