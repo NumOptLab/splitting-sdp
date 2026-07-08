@@ -1,12 +1,14 @@
 # Local linear convergence of the primal-dual hybrid gradient (PDHG) algorithm for semidefinite programming
 
-This codebase accompanies the paper "Local linear convergence of the primal-dual hybrid gradient (PDHG) algorithm for semidefinite programming." It contains Python code and data utilities for numerical experiments on primal-dual first-order methods, in particular, PDHG and ADMM, for semidefinite programming (SDP).
+This codebas contains Python code and data utilities for numerical experiments on primal-dual first-order methods, in particular, PDHG and ADMM, for semidefinite programming (SDP). It accompanies the paper 
+> Local linear convergence of the primal-dual hybrid gradient (PDHG) algorithm for semidefinite programming
 
-It also includes a Python reimplementation of the experiments from ["Local linear convergence of the alternating direction method of multipliers for semidefinite programming under strict complementarity"](https://arxiv.org/abs/2503.20142).
+It also includes a Python reimplementation of the experiments from 
+> Local linear convergence of the alternating direction method of multipliers for semidefinite programming under strict complementarity \[[arXiv](https://arxiv.org/abs/2503.20142)\]
 
-**Caveat:** this implementation is designed only to verify two phenomena in primal-dual first-order methods for SDP: local R-linear convergence and rank identification. It is not optimized for numerical stability or efficiency.
+**Caveat:** This implementation is designed only to verify two phenomena in primal-dual first-order methods for SDP: local R-linear convergence and rank identification. It is not optimized for numerical stability or efficiency.
 
-The standard primal-dual SDP pair considered here is
+The primal-dual pair of SDPs considered here is
 
 $$
 \begin{array}{lll}
