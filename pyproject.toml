@@ -1,0 +1,23 @@
+[project]
+name = "pdhg-sdp"
+version = "0.1.0"
+description = "Sparse-aware first-order solvers for standard-form SDP experiments"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "h5py>=3.10",
+    "matplotlib>=3.8",
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "pytest>=9.1.1",
+    "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
