@@ -169,7 +169,7 @@ def save_csv(filename: str, header: str, data: np.ndarray) -> None:
 
 def main():
     alpha0 = 2.0e-2
-    num_iter = 1000000
+    num_iter = 10000000
     csv_stride = 1
 
     out = run_pdhg(alpha0=alpha0, num_iter=num_iter)
